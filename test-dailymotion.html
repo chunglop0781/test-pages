@@ -2,360 +2,84 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dailymotion HLS Player</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dailymotion HLS Player</title>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
-<style>
-* { box-sizing: border-box; }
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
 
-body {
-    margin: 0;
-    padding: 20px;
-    background: #111318;
-    color: white;
-    font-family: Arial, sans-serif;
-}
+        video {
+            display: block;
+            width: 100%;
+            max-width: 1000px;
+            margin: 20px auto;
+            background: black;
+        }
 
-.container {
-    max-width: 1100px;
-    margin: auto;
-}
-
-input, textarea, select, button {
-    padding: 12px;
-    border-radius: 7px;
-    border: 1px solid #444;
-    background: #222630;
-    color: white;
-}
-
-input, textarea {
-    width: 100%;
-    margin: 8px 0;
-}
-
-textarea {
-    height: 140px;
-    resize: vertical;
-}
-
-button {
-    cursor: pointer;
-    background: #087cff;
-    border: 0;
-    margin: 5px 0;
-}
-
-button:hover { background: #0064d9; }
-
-.player {
-    margin-top: 15px;
-    aspect-ratio: 16 / 9;
-    background: black;
-}
-
-video {
-    width: 100%;
-    height: 100%;
-}
-
-.status {
-    padding: 12px;
-    margin-top: 12px;
-    background: #222630;
-    border-radius: 7px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
-
-.section {
-    margin-top: 20px;
-}
-
-.row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.row button { flex: 1; }
-
-select { min-width: 130px; }
-</style>
+        #status {
+            text-align: center;
+            color: #ccc;
+        }
+    </style>
 </head>
-
 <body>
 
-<div class="container">
+    <h2>Dailymotion Player</h2>
 
-<h2> Dailymotion HLS Player</h2>
-
-<div class="section">
-    <b>1. Video URL</b>
-    <input id="videoUrl"
-        value="https://www.dailymotion.com/video/k7amVyU7B8K92VM9DTQ">
-
-    <div class="row">
-        <button onclick="openMetadata()">Mở Metadata API</button>
-    </div>
-</div>
-
-<div class="section">
-    <b>2. Dán JSON Metadata</b>
-
-    <textarea id="metadata"
-        placeholder="Dán toàn bộ JSON metadata Dailymotion vào đây..."></textarea>
-
-    <button onclick="extractMetadata()">
-        Phân tích và lấy HLS
-    </button>
-</div>
-
-<div class="section">
-    <b>3. Chất lượng video</b>
-    <select id="quality" onchange="changeQuality()">
-        <option value="-1">Auto</option>
-    </select>
-</div>
-
-<div class="player">
     <video id="video" controls playsinline></video>
-</div>
+    <p id="status">Đang chờ nguồn video...</p>
 
-<div id="status" class="status">
-Sẵn sàng.
-</div>
+    <script>
+        const video = document.getElementById("video");
+        const status = document.getElementById("status");
 
-</div>
+        // Dán URL HLS được phép nhúng tại đây.
+        const HLS_URL = "";
 
-<script>
-
-const video = document.getElementById("video");
-const statusBox = document.getElementById("status");
-const qualitySelect = document.getElementById("quality");
-
-let hls = null;
-
-let streamUrl = "";
-
-function status(message) {
-    statusBox.textContent = message;
-}
-
-function getId(url) {
-    const match = url.match(
-        /dailymotion\.com\/video\/([a-zA-Z0-9]+)/
-    );
-
-    return match ? match[1] : null;
-}
-
-// Mở API metadata trực tiếp
-function openMetadata() {
-
-    const id = getId(
-        document.getElementById("videoUrl").value.trim()
-    );
-
-    if (!id) {
-        status("Không nhận diện được video ID.");
-        return;
-    }
-
-    const endpoint =
-        "https://www.dailymotion.com/player/metadata/video/" + id;
-
-    window.open(endpoint, "_blank");
-
-    status(
-        "Đã mở Metadata API.\n" +
-        "Nếu Chrome hiển thị JSON, hãy sao chép toàn bộ và dán vào ô Metadata."
-    );
-}
-
-// Hủy player cũ
-function destroyPlayer() {
-
-    if (hls) {
-        hls.destroy();
-        hls = null;
-    }
-
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-}
-
-// Lấy các URL HLS từ metadata
-function extractMetadata() {
-
-    try {
-
-        const raw = document.getElementById("metadata").value;
-
-        const metadata = JSON.parse(raw);
-
-        const qualities = metadata.qualities;
-
-        if (!qualities) {
-            throw new Error("Không tìm thấy qualities.");
-        }
-
-        const streams = [];
-
-        for (const [name, items] of Object.entries(qualities)) {
-
-            if (!Array.isArray(items)) continue;
-
-            for (const item of items) {
-
-                if (
-                    item.type === "application/x-mpegURL" ||
-                    item.type === "application/vnd.apple.mpegurl" ||
-                    /\.m3u8(?:\?|$)/i.test(item.url || "")
-                ) {
-                    streams.push({
-                        name: name,
-                        url: item.url
-                    });
-                }
+        function playHLS(url) {
+            if (!url) {
+                status.textContent = "Chưa có URL HLS.";
+                return;
             }
-        }
 
-        if (!streams.length) {
-            throw new Error("Metadata không chứa HLS.");
-        }
+            if (Hls.isSupported()) {
+                const hls = new Hls();
 
-        const selected = streams.find(
-            item => item.name === "auto"
-        ) || streams[0];
+                hls.loadSource(url);
+                hls.attachMedia(video);
 
-        streamUrl = selected.url;
-
-        qualitySelect.innerHTML = "";
-
-        const option = document.createElement("option");
-        option.value = selected.url;
-        option.textContent = "Auto";
-        qualitySelect.appendChild(option);
-
-        for (const item of streams) {
-
-            if (item.url === selected.url) continue;
-
-            const option = document.createElement("option");
-
-            option.value = item.url;
-            option.textContent = item.name;
-
-            qualitySelect.appendChild(option);
-        }
-
-        status(
-            "Đã tìm thấy " + streams.length +
-            " luồng HLS.\n" +
-            "Video ID: " + metadata.id +
-            "\nTiêu đề: " + metadata.title +
-            "\nĐang chuẩn bị phát..."
-        );
-
-        playStream(streamUrl);
-
-    } catch (error) {
-
-        status("Lỗi phân tích metadata: " + error.message);
-    }
-}
-
-// Chọn chất lượng
-function changeQuality() {
-
-    const url = qualitySelect.value;
-
-    if (url) playStream(url);
-}
-
-// Phát HLS
-function playStream(url) {
-
-    destroyPlayer();
-
-    if (Hls.isSupported()) {
-
-        hls = new Hls({
-            enableWorker: true,
-            maxBufferLength: 30
-        });
-
-        hls.loadSource(url);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
-
-            status("Đã tải HLS thành công. Đang phát video.");
-
-            video.play().catch(() => {
-                status("Video sẵn sàng. Nhấn Play để xem.");
-            });
-
-            const levels = hls.levels;
-
-            if (levels.length > 1) {
-
-                const current = qualitySelect.value;
-
-                qualitySelect.innerHTML = "";
-
-                const auto = document.createElement("option");
-                auto.value = "-1";
-                auto.textContent = "Auto";
-                qualitySelect.appendChild(auto);
-
-                levels.forEach((level, index) => {
-
-                    const option = document.createElement("option");
-
-                    option.value = index;
-                    option.textContent =
-                        (level.height || "?") + "p";
-
-                    qualitySelect.appendChild(option);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    status.textContent = "Video đã sẵn sàng.";
                 });
 
-                qualitySelect.value = "-1";
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        status.textContent =
+                            "Không thể phát: " + data.details;
+                        hls.destroy();
+                    }
+                });
+            } else if (video.canPlayType(
+                "application/vnd.apple.mpegurl"
+            )) {
+                video.src = url;
+            } else {
+                status.textContent =
+                    "Trình duyệt không hỗ trợ HLS.";
             }
-        });
+        }
 
-        hls.on(Hls.Events.ERROR, function (event, data) {
-
-            if (data.fatal) {
-
-                status(
-                    "Lỗi HLS: " + data.details +
-                    "\nKiểm tra CORS, URL hết hạn hoặc quyền truy cập CDN."
-                );
-
-                hls.destroy();
-                hls = null;
-            }
-        });
-
-    } else if (
-        video.canPlayType("application/vnd.apple.mpegurl")
-    ) {
-
-        video.src = url;
-
-    } else {
-
-        status("Chrome không hỗ trợ HLS.");
-    }
-}
-
-</script>
+        playHLS(HLS_URL);
+    </script>
 
 </body>
 </html>
