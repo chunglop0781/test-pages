@@ -1,0 +1,365 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dailymotion HLS Player</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #101114;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            padding: 25px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input {
+            flex: 1;
+            min-width: 0;
+            padding: 13px;
+            border: 1px solid #444;
+            border-radius: 7px;
+            background: #202127;
+            color: white;
+            outline: none;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 7px;
+            background: #087cff;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #0064d9;
+        }
+
+        .player {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: black;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 13px;
+            border-radius: 7px;
+            background: #202127;
+            color: #bbb;
+            overflow-wrap: anywhere;
+            line-height: 1.6;
+        }
+
+        .error {
+            color: #ff7777;
+        }
+
+        .success {
+            color: #62e69a;
+        }
+
+        .section {
+            margin-top: 20px;
+        }
+
+        .section input {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        @media(max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h2> Dailymotion HLS Player</h2>
+
+    <div class="controls">
+        <input
+            id="videoUrl"
+            value="https://www.dailymotion.com/video/k7amVyU7B8K92VM9DTQ"
+            placeholder="Nhập link Dailymotion..."
+        >
+
+        <button onclick="loadDailymotion()">
+            Tải video
+        </button>
+    </div>
+
+    <div class="player">
+        <video id="video" controls playsinline></video>
+    </div>
+
+    <div id="status" class="status">
+        Sẵn sàng.
+    </div>
+
+    <div class="section">
+        <b>Phát HLS trực tiếp (nếu có URL hợp lệ)</b>
+        <input
+            id="m3u8Url"
+            placeholder="Nhập URL .m3u8 của video bạn có quyền truy cập..."
+        >
+        <button style="margin-top:10px"
+                onclick="playM3U8()">
+            Phát M3U8
+        </button>
+    </div>
+
+</div>
+
+<script>
+
+const video = document.getElementById("video");
+const statusBox = document.getElementById("status");
+
+let hls = null;
+
+function status(message, type = "") {
+    statusBox.className = "status " + type;
+    statusBox.textContent = message;
+}
+
+// Lấy ID video Dailymotion
+function getVideoId(url) {
+
+    const patterns = [
+        /dailymotion\.com\/video\/([a-zA-Z0-9]+)/,
+        /dai\.ly\/([a-zA-Z0-9]+)/
+    ];
+
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+
+        if (match) {
+            return match[1];
+        }
+    }
+
+    return null;
+}
+
+// Giải phóng player cũ
+function destroyPlayer() {
+
+    if (hls) {
+        hls.destroy();
+        hls = null;
+    }
+
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+}
+
+// Tìm URL HLS trong metadata công khai
+function findHLS(metadata) {
+
+    const qualities = metadata.qualities;
+
+    if (!qualities) {
+        return null;
+    }
+
+    const entries = Object.values(qualities);
+
+    for (const quality of entries) {
+
+        if (!Array.isArray(quality)) continue;
+
+        for (const stream of quality) {
+
+            if (
+                stream.type === "application/x-mpegURL" ||
+                stream.type === "application/vnd.apple.mpegurl" ||
+                /\.m3u8(?:\?|$)/i.test(stream.url || "")
+            ) {
+                return stream.url;
+            }
+        }
+    }
+
+    return null;
+}
+
+// Tải video Dailymotion
+async function loadDailymotion() {
+
+    const url = document.getElementById("videoUrl").value.trim();
+
+    const id = getVideoId(url);
+
+    if (!id) {
+        status("Không nhận diện được ID Dailymotion.", "error");
+        return;
+    }
+
+    destroyPlayer();
+
+    status("Đang truy vấn metadata video: " + id);
+
+    try {
+
+        const endpoint =
+            "https://www.dailymotion.com/player/metadata/video/" +
+            encodeURIComponent(id);
+
+        const response = await fetch(endpoint, {
+            method: "GET",
+            mode: "cors",
+            credentials: "omit"
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                "Dailymotion trả về HTTP " + response.status
+            );
+        }
+
+        const metadata = await response.json();
+
+        const m3u8 = findHLS(metadata);
+
+        if (!m3u8) {
+            throw new Error(
+                "Metadata không cung cấp URL HLS công khai."
+            );
+        }
+
+        status("Đã tìm thấy HLS. Đang khởi tạo trình phát...", "success");
+
+        playStream(m3u8);
+
+    } catch (error) {
+
+        console.error(error);
+
+        status(
+            "Không thể lấy hoặc phát HLS: " + error.message +
+            "\n\nCó thể API bị CORS, video không cấp manifest công khai " +
+            "hoặc Dailymotion yêu cầu Player ID/quyền truy cập hợp lệ.",
+            "error"
+        );
+    }
+}
+
+// Phát M3U8
+function playStream(url) {
+
+    destroyPlayer();
+
+    if (Hls.isSupported()) {
+
+        hls = new Hls({
+            enableWorker: true,
+            maxBufferLength: 30
+        });
+
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+
+            status("Đã tải manifest HLS. Có thể phát video.", "success");
+
+            video.play().catch(() => {
+                status("Video đã sẵn sàng. Nhấn nút Play.", "success");
+            });
+        });
+
+        hls.on(Hls.Events.ERROR, function (event, data) {
+
+            if (data.fatal) {
+
+                status(
+                    "Lỗi phát HLS: " + data.details +
+                    ". Kiểm tra URL, CORS hoặc quyền truy cập.",
+                    "error"
+                );
+
+                hls.destroy();
+                hls = null;
+            }
+        });
+
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+
+        video.src = url;
+
+        video.addEventListener("loadedmetadata", function () {
+            status("Đã tải video HLS.", "success");
+        }, { once: true });
+
+    } else {
+
+        status("Trình duyệt không hỗ trợ HLS.", "error");
+    }
+}
+
+// Phát URL M3U8 nhập thủ công
+function playM3U8() {
+
+    const url = document.getElementById("m3u8Url").value.trim();
+
+    if (!/^https?:\/\/.+\.m3u8(?:\?.*)?$/i.test(url)) {
+        status("URL M3U8 không hợp lệ.", "error");
+        return;
+    }
+
+    status("Đang tải M3U8...");
+
+    playStream(url);
+}
+
+</script>
+
+</body>
+</html>
